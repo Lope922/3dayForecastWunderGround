@@ -1,291 +1,440 @@
-Imports System
-Imports System.Security.Cryptography
-Imports System.Collections
-Imports System.Collections.Generic
-Imports System.Text
-Imports System.Web
+typical forecast response from weather undergound in the xml format 
 
-Namespace OAuth
-    Public Class OAuthBase
-        ''
-        ' List of know and used oauth parameters' names
-        ''        
-        Protected Const OAuthVersion As String = "1.0"
-        Protected Const OAuthParameterPrefix As String = "oauth_"
-        Protected Const OAuthConsumerKeyKey As String = "oauth_consumer_key"
-        Protected Const OAuthCallbackKey As String = "oauth_callback"
-        Protected Const OAuthVersionKey As String = "oauth_version"
-        Protected Const OAuthSignatureMethodKey As String = "oauth_signature_method"
-        Protected Const OAuthSignatureKey As String = "oauth_signature"
-        Protected Const OAuthTimestampKey As String = "oauth_timestamp"
-        Protected Const OAuthNonceKey As String = "oauth_nonce"
-        Protected Const OAuthTokenKey As String = "oauth_token"
-        Protected Const OAuthTokenSecretKey As String = "oauth_token_secret"
-        Protected Const HMACSHA1SignatureType As String = "HMAC-SHA1"
-        Protected Const PlainTextSignatureType As String = "PLAINTEXT"
-        Protected Const RSASHA1SignatureType As String = "RSA-SHA1"
-        Protected random As New Random()
-        Protected unreservedChars As String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"
-
-        ''' <summary>
-        ''' Provides a predefined set of algorithms that are supported officially by the protocol
-        ''' </summary>
-        Public Enum SignatureTypes
-            HMACSHA1
-            PLAINTEXT
-            RSASHA1
-        End Enum
-
-        ''' <summary>
-        ''' Provides an internal structure to sort the query parameter
-        ''' </summary>
-        Protected Class QueryParameter
-            Private name As String = Nothing
-            Private value As String = Nothing
-            Public Sub New(ByVal Name As String, ByVal value As String)
-                Me.name = Name
-                Me.value = value
-            End Sub
-            Public ReadOnly Property Nome() As String
-                Get
-                    Return name
-                End Get
-            End Property
-            Public ReadOnly Property Valor() As String
-                Get
-                    Return value
-                End Get
-            End Property
-        End Class
-
-        ''' <summary>
-        ''' Comparer class used to perform the sorting of the query parameters
-        ''' </summary>
-        Protected Class QueryParameterComparer
-#Region "IComparer<QueryParameter> Members"
-            Public Function Compare(ByVal x As QueryParameter, ByVal y As QueryParameter) As Integer
-                If (x.Nome = y.Nome) Then
-                    Return String.Compare(x.Valor, y.Valor)
-                Else
-                    Return String.Compare(x.Nome, y.Nome)
-                End If
-            End Function
-#End Region
-        End Class
-
-        ''' <summary>
-        ''' Helper function to compute a hash value
-        ''' </summary>
-        ''' <param name="hashAlgorithm">The hashing algoirhtm used. If that algorithm needs some initialization, like HMAC and its derivatives, they should be initialized prior to passing it to this function</param>
-        ''' <param name="data">The data to hash</param>
-        ''' <returns>a Base64 string of the hash value</returns>
-        Private Function ComputeHash(ByVal hashAlgorithm As HashAlgorithm, ByVal data As String) As String
-            If (hashAlgorithm Is Nothing) Then
-                Throw New ArgumentNullException("hashAlgorithm")
-            End If
-
-            If (String.IsNullOrEmpty(data)) Then
-                Throw New ArgumentNullException("data")
-            End If
-
-            Dim dataBuffer As Byte() = System.Text.Encoding.ASCII.GetBytes(data)
-            Dim hashBytes As Byte() = hashAlgorithm.ComputeHash(dataBuffer)
-            Return Convert.ToBase64String(hashBytes)
-        End Function
-
-        ''' <summary>
-        ''' Internal function to cut out all non oauth query string parameters (all parameters not begining with "oauth_")
-        ''' </summary>
-        ''' <param name="parameters">The query string part of the Url</param>
-        ''' <returns>A list of QueryParameter each containing the parameter name and value</returns>
-        Private Function GetQueryParameters(ByVal parameters As String) As List(Of QueryParameter)
-            If (parameters.StartsWith("?")) Then
-                parameters = parameters.Remove(0, 1)
-            End If
-            Dim result As New List(Of QueryParameter)
-            If (Not String.IsNullOrEmpty(parameters)) Then
-                Dim p As String() = parameters.Split("&")
-                For Each s As String In p
-                    If (Not String.IsNullOrEmpty(s) And Not s.StartsWith(OAuthParameterPrefix)) Then
-                        If (s.IndexOf("=") > -1) Then
-                            Dim temp As String() = s.Split("=")
-                            result.Add(New QueryParameter(temp(0), temp(1)))
-                        Else
-                            result.Add(New QueryParameter(s, String.Empty))
-                        End If
-                    End If
-                Next
-            End If
-            Return result
-        End Function
-
-        ''' <summary>
-        ''' This is a different Url Encode implementation since the default .NET one outputs the percent encoding in lower case.
-        ''' While this is not a problem with the percent encoding spec, it is used in upper case throughout OAuth
-        ''' </summary>
-        ''' <param name="value">The value to Url encode</param>
-        ''' <returns>Returns a Url encoded string</returns>
-        Protected Function UrlEncode(ByVal value As String) As String
-            Dim result As New StringBuilder()
-            For Each symbol As Char In value
-                If unreservedChars.IndexOf(symbol) <> -1 Then
-                    result.Append(symbol)
-                Else
-                    result.Append("%" + String.Format("{0:X2}", Convert.ToInt32(symbol)))
-                End If
-            Next
-            Return result.ToString()
-        End Function
-
-        ''' <summary>
-        ''' Normalizes the request parameters according to the spec
-        ''' </summary>
-        ''' <param name="parameters">The list of parameters already sorted</param>
-        ''' <returns>a string representing the normalized parameters</returns>
-        Protected Function NormalizeRequestParameters(ByVal parameters As IList(Of QueryParameter)) As String
-            Dim sb As New StringBuilder()
-            Dim i As Integer
-            Dim p As QueryParameter = Nothing
-
-            For i = 0 To parameters.Count - 1
-                p = parameters(i)
-                sb.AppendFormat("{0}={1}", p.Nome, p.Valor)
-
-                If (i < parameters.Count - 1) Then
-                    sb.Append("&")
-                End If
-            Next
-
-            Return sb.ToString()
-        End Function
-
-        ''' <summary>
-        ''' Generate the signature base that is used to produce the signature
-        ''' </summary>
-        ''' <param name="url">The full url that needs to be signed including its non OAuth url parameters</param>
-        ''' <param name="consumerKey">The consumer key</param>        
-        ''' <param name="token">The token, if available. If not available pass null or an empty string</param>
-        ''' <param name="tokenSecret">The token secret, if available. If not available pass null or an empty string</param>
-        ''' <param name="httpMethod">The http method used. Must be a valid HTTP method verb (POST,GET,PUT, etc)</param>
-        ''' <param name="signatureType">The signature type. To use the default values use <see cref="OAuthBase.SignatureTypes">OAuthBase.SignatureTypes</see>.</param>
-        ''' <returns>The signature base</returns>
-        Public Function GenerateSignatureBase(ByVal url As Uri, ByVal consumerKey As String, ByVal token As String, ByVal tokenSecret As String, ByVal httpMethod As String, ByVal timeStamp As String, ByVal nonce As String, ByVal signatureType As String, ByRef normalizedUrl As String, ByRef normalizedRequestParameters As String) As String
-            If token Is Nothing Then
-                token = String.Empty
-            End If
-            If tokenSecret Is Nothing Then
-                tokenSecret = String.Empty
-            End If
-            If String.IsNullOrEmpty(consumerKey) Then
-                Throw New ArgumentException("consumerKey")
-            End If
-            If String.IsNullOrEmpty(httpMethod) Then
-                Throw New ArgumentNullException("httpMethod")
-            End If
-            If String.IsNullOrEmpty(signatureType) Then
-                Throw New ArgumentNullException("signatureType")
-            End If
-            normalizedUrl = Nothing
-            normalizedRequestParameters = Nothing
-
-            Dim parameters As List(Of QueryParameter) = GetQueryParameters(url.Query)
-            parameters.Add(New QueryParameter(OAuthVersionKey, OAuthVersion))
-            parameters.Add(New QueryParameter(OAuthNonceKey, nonce))
-            parameters.Add(New QueryParameter(OAuthTimestampKey, timeStamp))
-            parameters.Add(New QueryParameter(OAuthSignatureMethodKey, signatureType))
-            parameters.Add(New QueryParameter(OAuthConsumerKeyKey, consumerKey))
-
-            If (Not String.IsNullOrEmpty(token)) Then
-                parameters.Add(New QueryParameter(OAuthTokenKey, token))
-            End If
-            'parameters.Sort(New QueryParameterComparer())
-            normalizedUrl = String.Format("{0}://{1}", url.Scheme, url.Host)
-
-            If (Not ((url.Scheme = "http" And url.Port = 80) Or (url.Scheme = "https" And url.Port = 443))) Then
-                normalizedUrl += ":" + url.Port
-            End If
-
-            normalizedUrl += url.AbsolutePath
-            normalizedRequestParameters = NormalizeRequestParameters(parameters)
-
-            Dim signatureBase As New StringBuilder()
-            signatureBase.AppendFormat("{0}&", httpMethod.ToUpper())
-            signatureBase.AppendFormat("{0}&", UrlEncode(normalizedUrl))
-            signatureBase.AppendFormat("{0}", UrlEncode(normalizedRequestParameters))
-            Return signatureBase.ToString()
-        End Function
-
-        ''' <summary>
-        ''' Generate the signature value based on the given signature base and hash algorithm
-        ''' </summary>
-        ''' <param name="signatureBase">The signature based as produced by the GenerateSignatureBase method or by any other means</param>
-        ''' <param name="hash">The hash algorithm used to perform the hashing. If the hashing algorithm requires initialization or a key it should be set prior to calling this method</param>
-        ''' <returns>A base64 string of the hash value</returns>
-        Public Function GenerateSignatureUsingHash(ByVal signatureBase As String, ByVal hash As HashAlgorithm) As String
-            Return ComputeHash(hash, signatureBase)
-        End Function
-
-        ''' <summary>
-        ''' Generates a signature using the HMAC-SHA1 algorithm
-        ''' </summary>		
-        ''' <param name="url">The full url that needs to be signed including its non OAuth url parameters</param>
-        ''' <param name="consumerKey">The consumer key</param>
-        ''' <param name="consumerSecret">The consumer seceret</param>
-        ''' <param name="token">The token, if available. If not available pass null or an empty string</param>
-        ''' <param name="tokenSecret">The token secret, if available. If not available pass null or an empty string</param>
-        ''' <param name="httpMethod">The http method used. Must be a valid HTTP method verb (POST,GET,PUT, etc)</param>
-        ''' <returns>A base64 string of the hash value</returns>
-        Public Function GenerateSignature(ByVal url As Uri, ByVal consumerKey As String, ByVal consumerSecret As String, ByVal token As String, ByVal tokenSecret As String, ByVal httpMethod As String, ByVal timeStamp As String, ByVal nonce As String, ByRef normalizedUrl As String, ByRef normalizedRequestParameters As String) As String
-            Return GenerateSignature(url, consumerKey, consumerSecret, token, tokenSecret, httpMethod, timeStamp, nonce, SignatureTypes.HMACSHA1, normalizedUrl, normalizedRequestParameters)
-        End Function
-
-        ''' <summary>
-        ''' Generates a signature using the specified signatureType 
-        ''' </summary>		
-        ''' <param name="url">The full url that needs to be signed including its non OAuth url parameters</param>
-        ''' <param name="consumerKey">The consumer key</param>
-        ''' <param name="consumerSecret">The consumer seceret</param>
-        ''' <param name="token">The token, if available. If not available pass null or an empty string</param>
-        ''' <param name="tokenSecret">The token secret, if available. If not available pass null or an empty string</param>
-        ''' <param name="httpMethod">The http method used. Must be a valid HTTP method verb (POST,GET,PUT, etc)</param>
-        ''' <param name="signatureType">The type of signature to use</param>
-        ''' <returns>A base64 string of the hash value</returns>
-        Public Function GenerateSignature(ByVal url As Uri, ByVal consumerKey As String, ByVal consumerSecret As String, ByVal token As String, ByVal tokenSecret As String, ByVal httpMethod As String, ByVal timeStamp As String, ByVal nonce As String, ByVal signatureType As SignatureTypes, ByRef normalizedUrl As String, ByRef normalizedRequestParameters As String) As String
-            normalizedUrl = Nothing
-            normalizedRequestParameters = Nothing
-            Select Case signatureType
-                Case SignatureTypes.HMACSHA1
-                    Dim signatureBase As String = GenerateSignatureBase(url, consumerKey, token, tokenSecret, httpMethod, timeStamp, nonce, HMACSHA1SignatureType, normalizedUrl, normalizedRequestParameters)
-                    Dim hmacsha1 As New HMACSHA1()
-                    hmacsha1.Key = Encoding.ASCII.GetBytes(String.Format("{0}&{1}", UrlEncode(consumerSecret), IIf(String.IsNullOrEmpty(tokenSecret), "", UrlEncode(tokenSecret))))
-                    Return GenerateSignatureUsingHash(signatureBase, hmacsha1)
-                Case SignatureTypes.PLAINTEXT
-                    Return UrlEncode(String.Format("{0}&{1}", consumerSecret, tokenSecret))
-                Case SignatureTypes.RSASHA1
-                    Throw New NotImplementedException()
-                Case Else
-                    Throw New ArgumentException("Unknown signature type", "signatureType")
-            End Select
-        End Function
-
-        ''' <summary>
-        ''' Generate the timestamp for the signature        
-        ''' </summary>
-        ''' <returns></returns>
-        Public Function GenerateTimeStamp() As String
-            ' Default implementation of UNIX time of the current UTC time
-            Dim ts As TimeSpan = DateTime.UtcNow - New DateTime(1970, 1, 1, 0, 0, 0, 0)
-            Return Convert.ToInt64(ts.TotalSeconds).ToString()
-        End Function
-
-        ''' <summary>
-        ''' Generate a nonce
-        ''' </summary>
-        ''' <returns></returns>
-        Public Function GenerateNonce() As String
-            ' Just a simple implementation of a random number between 123400 and 9999999
-            Return random.Next(123400, 9999999).ToString()
-        End Function
-    End Class
-    
-End Namespace
+- <response>
+  <version>0.1</version> 
+  <termsofService>http://www.wunderground.com/weather/api/d/terms.html</termsofService> 
+- <features>
+  <feature>forecast</feature> 
+  </features>
+- <forecast>
+- <txt_forecast>
+  <date>11:35 PM CDT</date> 
++ <forecastdays>
+- <forecastday>
+  <period>0</period> 
+  <icon>rain</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/rain.gif</icon_url> 
+  <title>Monday</title> 
+- <fcttext>
+- <![CDATA[ Rain ending early. Then remaining mainly cloudy. Thunder possible. High 71F. Winds NNW at 10 to 20 mph. Chance of rain 80%.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Mostly cloudy with rain ending in the afternoon. Thunder possible. High 22C. Winds NNW at 15 to 30 km/h. Chance of rain 70%.
+  ]]> 
+  </fcttext_metric>
+  <pop>80</pop> 
+  </forecastday>
+- <forecastday>
+  <period>1</period> 
+  <icon>nt_cloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/nt_cloudy.gif</icon_url> 
+  <title>Monday Night</title> 
+- <fcttext>
+- <![CDATA[ Cloudy skies. Low 51F. Winds NNE at 5 to 10 mph.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Cloudy. Low around 10C. Winds NNE at 10 to 15 km/h.
+  ]]> 
+  </fcttext_metric>
+  <pop>0</pop> 
+  </forecastday>
+- <forecastday>
+  <period>2</period> 
+  <icon>partlycloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/partlycloudy.gif</icon_url> 
+  <title>Tuesday</title> 
+- <fcttext>
+- <![CDATA[ Mostly cloudy skies early, then partly cloudy in the afternoon. High near 70F. Winds ENE at 10 to 15 mph.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Considerable clouds early. Some decrease in clouds later in the day. High 21C. Winds ENE at 15 to 25 km/h.
+  ]]> 
+  </fcttext_metric>
+  <pop>0</pop> 
+  </forecastday>
+- <forecastday>
+  <period>3</period> 
+  <icon>nt_mostlycloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/nt_mostlycloudy.gif</icon_url> 
+  <title>Tuesday Night</title> 
+- <fcttext>
+- <![CDATA[ Partly cloudy skies in the evening, then becoming cloudy overnight. Low 52F. Winds ENE at 5 to 10 mph.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Partly cloudy during the evening followed by cloudy skies overnight. Low 11C. Winds ENE at 10 to 15 km/h.
+  ]]> 
+  </fcttext_metric>
+  <pop>10</pop> 
+  </forecastday>
+- <forecastday>
+  <period>4</period> 
+  <icon>cloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/cloudy.gif</icon_url> 
+  <title>Wednesday</title> 
+- <fcttext>
+- <![CDATA[ Cloudy skies. High around 70F. Winds E at 10 to 15 mph.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Cloudy. High 21C. Winds E at 15 to 25 km/h.
+  ]]> 
+  </fcttext_metric>
+  <pop>0</pop> 
+  </forecastday>
+- <forecastday>
+  <period>5</period> 
+  <icon>nt_chancerain</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/nt_chancerain.gif</icon_url> 
+  <title>Wednesday Night</title> 
+- <fcttext>
+- <![CDATA[ Cloudy with occasional rain showers. Low 57F. Winds ESE at 5 to 10 mph. Chance of rain 50%.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Considerable cloudiness. Occasional rain showers later at night. Low 13C. Winds SE at 10 to 15 km/h. Chance of rain 40%.
+  ]]> 
+  </fcttext_metric>
+  <pop>50</pop> 
+  </forecastday>
+- <forecastday>
+  <period>6</period> 
+  <icon>chancerain</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/chancerain.gif</icon_url> 
+  <title>Thursday</title> 
+- <fcttext>
+- <![CDATA[ Rain showers early with some sunshine later in the day. High 76F. Winds WNW at 5 to 10 mph. Chance of rain 40%.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ Partly cloudy. High 24C. Winds WNW at 10 to 15 km/h.
+  ]]> 
+  </fcttext_metric>
+  <pop>40</pop> 
+  </forecastday>
+- <forecastday>
+  <period>7</period> 
+  <icon>nt_partlycloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/nt_partlycloudy.gif</icon_url> 
+  <title>Thursday Night</title> 
+- <fcttext>
+- <![CDATA[ Partly cloudy skies. Low 56F. Winds light and variable.
+  ]]> 
+  </fcttext>
+- <fcttext_metric>
+- <![CDATA[ A few clouds from time to time. Low 13C. Winds light and variable.
+  ]]> 
+  </fcttext_metric>
+  <pop>10</pop> 
+  </forecastday>
+  </forecastdays>
+  </txt_forecast>
+- <simpleforecast>
+- <forecastdays>
+- <forecastday>
+- <date>
+  <epoch>1428969600</epoch> 
+  <pretty_short>7:00 PM CDT</pretty_short> 
+  <pretty>7:00 PM CDT on April 13, 2015</pretty> 
+  <day>13</day> 
+  <month>4</month> 
+  <year>2015</year> 
+  <yday>102</yday> 
+  <hour>19</hour> 
+  <min>00</min> 
+  <sec>0</sec> 
+  <isdst>1</isdst> 
+  <monthname>April</monthname> 
+  <monthname_short>Apr</monthname_short> 
+  <weekday_short>Mon</weekday_short> 
+  <weekday>Monday</weekday> 
+  <ampm>PM</ampm> 
+  <tz_short>CDT</tz_short> 
+  <tz_long>America/Chicago</tz_long> 
+  </date>
+  <period>1</period> 
+- <high>
+  <fahrenheit>71</fahrenheit> 
+  <celsius>22</celsius> 
+  </high>
+- <low>
+  <fahrenheit>51</fahrenheit> 
+  <celsius>11</celsius> 
+  </low>
+  <conditions>Rain</conditions> 
+  <icon>rain</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/rain.gif</icon_url> 
+  <skyicon /> 
+  <pop>80</pop> 
+- <qpf_allday>
+  <in>0.15</in> 
+  <mm>4</mm> 
+  </qpf_allday>
+- <qpf_day>
+  <in>0.15</in> 
+  <mm>4</mm> 
+  </qpf_day>
+- <qpf_night>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_night>
+- <snow_allday>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_allday>
+- <snow_day>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_day>
+- <snow_night>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_night>
+- <maxwind>
+  <mph>20</mph> 
+  <kph>32</kph> 
+  <dir>NNW</dir> 
+  <degrees>328</degrees> 
+  </maxwind>
+- <avewind>
+  <mph>16</mph> 
+  <kph>26</kph> 
+  <dir>NNW</dir> 
+  <degrees>328</degrees> 
+  </avewind>
+  <avehumidity>59</avehumidity> 
+  <maxhumidity>0</maxhumidity> 
+  <minhumidity>0</minhumidity> 
+  </forecastday>
+- <forecastday>
+- <date>
+  <epoch>1429056000</epoch> 
+  <pretty_short>7:00 PM CDT</pretty_short> 
+  <pretty>7:00 PM CDT on April 14, 2015</pretty> 
+  <day>14</day> 
+  <month>4</month> 
+  <year>2015</year> 
+  <yday>103</yday> 
+  <hour>19</hour> 
+  <min>00</min> 
+  <sec>0</sec> 
+  <isdst>1</isdst> 
+  <monthname>April</monthname> 
+  <monthname_short>Apr</monthname_short> 
+  <weekday_short>Tue</weekday_short> 
+  <weekday>Tuesday</weekday> 
+  <ampm>PM</ampm> 
+  <tz_short>CDT</tz_short> 
+  <tz_long>America/Chicago</tz_long> 
+  </date>
+  <period>2</period> 
+- <high>
+  <fahrenheit>70</fahrenheit> 
+  <celsius>21</celsius> 
+  </high>
+- <low>
+  <fahrenheit>52</fahrenheit> 
+  <celsius>11</celsius> 
+  </low>
+  <conditions>Partly Cloudy</conditions> 
+  <icon>partlycloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/partlycloudy.gif</icon_url> 
+  <skyicon /> 
+  <pop>0</pop> 
+- <qpf_allday>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_allday>
+- <qpf_day>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_day>
+- <qpf_night>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_night>
+- <snow_allday>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_allday>
+- <snow_day>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_day>
+- <snow_night>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_night>
+- <maxwind>
+  <mph>15</mph> 
+  <kph>24</kph> 
+  <dir>ENE</dir> 
+  <degrees>61</degrees> 
+  </maxwind>
+- <avewind>
+  <mph>12</mph> 
+  <kph>19</kph> 
+  <dir>ENE</dir> 
+  <degrees>61</degrees> 
+  </avewind>
+  <avehumidity>39</avehumidity> 
+  <maxhumidity>0</maxhumidity> 
+  <minhumidity>0</minhumidity> 
+  </forecastday>
+- <forecastday>
+- <date>
+  <epoch>1429142400</epoch> 
+  <pretty_short>7:00 PM CDT</pretty_short> 
+  <pretty>7:00 PM CDT on April 15, 2015</pretty> 
+  <day>15</day> 
+  <month>4</month> 
+  <year>2015</year> 
+  <yday>104</yday> 
+  <hour>19</hour> 
+  <min>00</min> 
+  <sec>0</sec> 
+  <isdst>1</isdst> 
+  <monthname>April</monthname> 
+  <monthname_short>Apr</monthname_short> 
+  <weekday_short>Wed</weekday_short> 
+  <weekday>Wednesday</weekday> 
+  <ampm>PM</ampm> 
+  <tz_short>CDT</tz_short> 
+  <tz_long>America/Chicago</tz_long> 
+  </date>
+  <period>3</period> 
+- <high>
+  <fahrenheit>70</fahrenheit> 
+  <celsius>21</celsius> 
+  </high>
+- <low>
+  <fahrenheit>57</fahrenheit> 
+  <celsius>14</celsius> 
+  </low>
+  <conditions>Overcast</conditions> 
+  <icon>cloudy</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/cloudy.gif</icon_url> 
+  <skyicon /> 
+  <pop>0</pop> 
+- <qpf_allday>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_allday>
+- <qpf_day>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_day>
+- <qpf_night>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_night>
+- <snow_allday>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_allday>
+- <snow_day>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_day>
+- <snow_night>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_night>
+- <maxwind>
+  <mph>15</mph> 
+  <kph>24</kph> 
+  <dir>E</dir> 
+  <degrees>96</degrees> 
+  </maxwind>
+- <avewind>
+  <mph>10</mph> 
+  <kph>16</kph> 
+  <dir>E</dir> 
+  <degrees>96</degrees> 
+  </avewind>
+  <avehumidity>48</avehumidity> 
+  <maxhumidity>0</maxhumidity> 
+  <minhumidity>0</minhumidity> 
+  </forecastday>
+- <forecastday>
+- <date>
+  <epoch>1429228800</epoch> 
+  <pretty_short>7:00 PM CDT</pretty_short> 
+  <pretty>7:00 PM CDT on April 16, 2015</pretty> 
+  <day>16</day> 
+  <month>4</month> 
+  <year>2015</year> 
+  <yday>105</yday> 
+  <hour>19</hour> 
+  <min>00</min> 
+  <sec>0</sec> 
+  <isdst>1</isdst> 
+  <monthname>April</monthname> 
+  <monthname_short>Apr</monthname_short> 
+  <weekday_short>Thu</weekday_short> 
+  <weekday>Thursday</weekday> 
+  <ampm>PM</ampm> 
+  <tz_short>CDT</tz_short> 
+  <tz_long>America/Chicago</tz_long> 
+  </date>
+  <period>4</period> 
+- <high>
+  <fahrenheit>76</fahrenheit> 
+  <celsius>24</celsius> 
+  </high>
+- <low>
+  <fahrenheit>56</fahrenheit> 
+  <celsius>13</celsius> 
+  </low>
+  <conditions>Chance of Rain</conditions> 
+  <icon>chancerain</icon> 
+  <icon_url>http://icons.wxug.com/i/c/k/chancerain.gif</icon_url> 
+  <skyicon /> 
+  <pop>40</pop> 
+- <qpf_allday>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_allday>
+- <qpf_day>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_day>
+- <qpf_night>
+  <in>0.00</in> 
+  <mm>0</mm> 
+  </qpf_night>
+- <snow_allday>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_allday>
+- <snow_day>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_day>
+- <snow_night>
+  <in>0.0</in> 
+  <cm>0.0</cm> 
+  </snow_night>
+- <maxwind>
+  <mph>10</mph> 
+  <kph>16</kph> 
+  <dir>WNW</dir> 
+  <degrees>296</degrees> 
+  </maxwind>
+- <avewind>
+  <mph>8</mph> 
+  <kph>13</kph> 
+  <dir>WNW</dir> 
+  <degrees>296</degrees> 
+  </avewind>
+  <avehumidity>70</avehumidity> 
+  <maxhumidity>0</maxhumidity> 
+  <minhumidity>0</minhumidity> 
+  </forecastday>
+  </forecastdays>
+  </simpleforecast>
+  </forecast>
+  </response>
