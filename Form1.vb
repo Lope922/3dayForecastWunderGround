@@ -3,15 +3,57 @@ Imports System.IO
 Imports System.Xml
 
 Public Class Form1
-   
+
+    '' build a web request for 3 day forecast off of this. 
+    ''  http://api.wunderground.com/api/ede6553743c4d570/forecast/q/MO/St_Louis.xml
+
+    '' a function that returns the vlaue of the txtbox input 
+    Public Function retrieveTxtboxCity() As String
+
+        Dim cityFromtxtBox As String = txtBoxCityName.Text
+        If txtBoxCityName.Text = "" Or txtBoxCityName.Text = Nothing Then
+            MessageBox.Show("Please enter a city name ", "Missing Info", MessageBoxButtons.OK, MessageBoxIcon.Hand)
+            Stop
+        Else
+
+            Return cityFromtxtBox
+        End If
+
+
+        '' both city and state could return a null reference exception on run time. How can i fix this ?
+    End Function
+
+    'retrieves the state from the comob box and handles not selecting errors 
+    Public Function retrieveState() As String
+        
+        Dim state As String = comboBoxStates.Text.ToString
+        If comboBoxStates.Text = Nothing Then
+            MessageBox.Show("Select a state from the combo dropdown box", "Missing Info", MessageBoxButtons.OK, MessageBoxIcon.Hand)
+        Else
+            Return state
+        End If
+    End Function
+
+    '' the function that builds the url request from user input 
+    Public Function url_request_built() As String
+        'Dim test_url As String = "http://api.wunderground.com/api/ede6553743c4d570/forecast/q/MO/St_Louis.xml"
+        Try
+            Dim ThreeDayForecastRequest As String = "http://api.wunderground.com/api/ede6553743c4d570/forecast/q" + "/" + retrieveState() + "/" + retrieveTxtboxCity() + ".xml"
+            Return ThreeDayForecastRequest
+        Catch problemBuildintUrl As Exception
+            MessageBox.Show("Problem generating webrequest. Check that all data has been entered correctly", "Error processing request", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+    End Function
+
 
 
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
         ' the test url 
-        Dim test_url As String = "http://api.wunderground.com/api/ede6553743c4d570/forecast/q/MO/St_Louis.xml"
 
+        ' Try
         'the web request 
-        Dim webRequestForecast As WebRequest = WebRequest.Create(test_url)
+        Dim webRequestForecast As WebRequest = WebRequest.Create(url_request_built())
 
         '' comes back as a stream, prepare a variable to handle/process stream 
         Dim forecastResponseStream As Stream = webRequestForecast.GetResponse.GetResponseStream()
@@ -48,9 +90,18 @@ Public Class Form1
         ''// fctext equals forecast text description 
 
         lblTemp.Text = xmlIconDescription.InnerText
+        ' Catch any exceptions. 
+        '  Catch problemReadingXML As Exception
+
+        '            MessageBox.Show("There was a problem Reading the xml file. " + vbCrLf + "Check to make sure you are connectedt to the internet ", "Error!", MessageBoxButtons.OK, MessageBoxIcon.Error)
+
+        '   End Try
 
         'testLabel.Text = xmlIconRequestURL.InnerText
         '' now get the image for the forecast and draw it to the picture box 
+
+        '' this chunk of code becomes inacessable from previous try catch statements. removed for testing 
+
         Try
             Dim icon_url As String = xmlIconRequestURL.InnerText
             Dim icon2 As String = xmlNodeDay2url_icon.InnerText
@@ -58,7 +109,7 @@ Public Class Form1
 
 
             Dim iconWebRequest As WebRequest = WebRequest.Create(icon_url)
-            
+
             Dim webimageResonse As Stream = iconWebRequest.GetResponse.GetResponseStream()
 
             Dim weatherDay1Icon As Image = Image.FromStream(webimageResonse)
@@ -78,8 +129,8 @@ Public Class Form1
             Dim weatherDayIcon3 As Image = Image.FromStream(webimageResonse3)
             forcastImageBox3.Image = weatherDayIcon3
 
-          
-            
+
+
 
 
             'Dim g As Graphics
@@ -93,5 +144,12 @@ Public Class Form1
     End Sub
 
 
+    '' as a background worker i should be able to call diffferent web request. So they should be queued up here. 
+    Private Sub apiBackgroundWorker_DoWork(sender As Object, e As System.ComponentModel.DoWorkEventArgs) Handles apiBackgroundWorker.DoWork
 
+    End Sub
+
+    Private Sub txtBoxCityName_Click(sender As Object, e As EventArgs) Handles txtBoxCityName.Click
+        txtBoxCityName.Clear()
+    End Sub
 End Class

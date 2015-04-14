@@ -32,6 +32,9 @@ Partial Class Form1
         Me.lblDescription3 = New System.Windows.Forms.Label()
         Me.lblDay3 = New System.Windows.Forms.Label()
         Me.forcastImageBox3 = New System.Windows.Forms.PictureBox()
+        Me.apiBackgroundWorker = New System.ComponentModel.BackgroundWorker()
+        Me.txtBoxCityName = New System.Windows.Forms.TextBox()
+        Me.comboBoxStates = New System.Windows.Forms.ComboBox()
         CType(Me.forcastImageBox1, System.ComponentModel.ISupportInitialize).BeginInit()
         CType(Me.forcastImageBox2, System.ComponentModel.ISupportInitialize).BeginInit()
         CType(Me.forcastImageBox3, System.ComponentModel.ISupportInitialize).BeginInit()
@@ -50,7 +53,7 @@ Partial Class Form1
         '
         Me.forcastImageBox1.BackColor = System.Drawing.SystemColors.InactiveBorder
         Me.forcastImageBox1.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D
-        Me.forcastImageBox1.Location = New System.Drawing.Point(181, 81)
+        Me.forcastImageBox1.Location = New System.Drawing.Point(399, 190)
         Me.forcastImageBox1.Name = "forcastImageBox1"
         Me.forcastImageBox1.Size = New System.Drawing.Size(130, 121)
         Me.forcastImageBox1.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom
@@ -60,7 +63,7 @@ Partial Class Form1
         'lblDay
         '
         Me.lblDay.AutoSize = True
-        Me.lblDay.Location = New System.Drawing.Point(178, 45)
+        Me.lblDay.Location = New System.Drawing.Point(396, 154)
         Me.lblDay.Name = "lblDay"
         Me.lblDay.Size = New System.Drawing.Size(29, 13)
         Me.lblDay.TabIndex = 2
@@ -69,7 +72,7 @@ Partial Class Form1
         'lblTemp
         '
         Me.lblTemp.AutoSize = True
-        Me.lblTemp.Location = New System.Drawing.Point(284, 228)
+        Me.lblTemp.Location = New System.Drawing.Point(502, 337)
         Me.lblTemp.Name = "lblTemp"
         Me.lblTemp.Size = New System.Drawing.Size(82, 13)
         Me.lblTemp.TabIndex = 3
@@ -78,7 +81,7 @@ Partial Class Form1
         'lblDescription2
         '
         Me.lblDescription2.AutoSize = True
-        Me.lblDescription2.Location = New System.Drawing.Point(488, 228)
+        Me.lblDescription2.Location = New System.Drawing.Point(706, 337)
         Me.lblDescription2.Name = "lblDescription2"
         Me.lblDescription2.Size = New System.Drawing.Size(80, 13)
         Me.lblDescription2.TabIndex = 7
@@ -87,7 +90,7 @@ Partial Class Form1
         'lblDay2
         '
         Me.lblDay2.AutoSize = True
-        Me.lblDay2.Location = New System.Drawing.Point(382, 45)
+        Me.lblDay2.Location = New System.Drawing.Point(600, 154)
         Me.lblDay2.Name = "lblDay2"
         Me.lblDay2.Size = New System.Drawing.Size(29, 13)
         Me.lblDay2.TabIndex = 6
@@ -97,7 +100,7 @@ Partial Class Form1
         '
         Me.forcastImageBox2.BackColor = System.Drawing.SystemColors.InactiveBorder
         Me.forcastImageBox2.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D
-        Me.forcastImageBox2.Location = New System.Drawing.Point(385, 81)
+        Me.forcastImageBox2.Location = New System.Drawing.Point(603, 190)
         Me.forcastImageBox2.Name = "forcastImageBox2"
         Me.forcastImageBox2.Size = New System.Drawing.Size(130, 121)
         Me.forcastImageBox2.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom
@@ -107,7 +110,7 @@ Partial Class Form1
         'lblDescription3
         '
         Me.lblDescription3.AutoSize = True
-        Me.lblDescription3.Location = New System.Drawing.Point(693, 228)
+        Me.lblDescription3.Location = New System.Drawing.Point(911, 337)
         Me.lblDescription3.Name = "lblDescription3"
         Me.lblDescription3.Size = New System.Drawing.Size(80, 13)
         Me.lblDescription3.TabIndex = 10
@@ -116,7 +119,7 @@ Partial Class Form1
         'lblDay3
         '
         Me.lblDay3.AutoSize = True
-        Me.lblDay3.Location = New System.Drawing.Point(587, 45)
+        Me.lblDay3.Location = New System.Drawing.Point(805, 154)
         Me.lblDay3.Name = "lblDay3"
         Me.lblDay3.Size = New System.Drawing.Size(29, 13)
         Me.lblDay3.TabIndex = 9
@@ -126,18 +129,42 @@ Partial Class Form1
         '
         Me.forcastImageBox3.BackColor = System.Drawing.SystemColors.InactiveBorder
         Me.forcastImageBox3.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D
-        Me.forcastImageBox3.Location = New System.Drawing.Point(590, 81)
+        Me.forcastImageBox3.Location = New System.Drawing.Point(808, 190)
         Me.forcastImageBox3.Name = "forcastImageBox3"
         Me.forcastImageBox3.Size = New System.Drawing.Size(130, 121)
         Me.forcastImageBox3.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom
         Me.forcastImageBox3.TabIndex = 8
         Me.forcastImageBox3.TabStop = False
         '
+        'apiBackgroundWorker
+        '
+        '
+        'txtBoxCityName
+        '
+        Me.txtBoxCityName.Location = New System.Drawing.Point(12, 12)
+        Me.txtBoxCityName.Name = "txtBoxCityName"
+        Me.txtBoxCityName.Size = New System.Drawing.Size(160, 20)
+        Me.txtBoxCityName.TabIndex = 11
+        Me.txtBoxCityName.Text = "Enter City Name"
+        '
+        'comboBoxStates
+        '
+        Me.comboBoxStates.AllowDrop = True
+        Me.comboBoxStates.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.comboBoxStates.FormattingEnabled = True
+        Me.comboBoxStates.Items.AddRange(New Object() {"---", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"})
+        Me.comboBoxStates.Location = New System.Drawing.Point(64, 69)
+        Me.comboBoxStates.Name = "comboBoxStates"
+        Me.comboBoxStates.Size = New System.Drawing.Size(95, 21)
+        Me.comboBoxStates.TabIndex = 12
+        '
         'Form1
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        Me.ClientSize = New System.Drawing.Size(876, 492)
+        Me.ClientSize = New System.Drawing.Size(1308, 543)
+        Me.Controls.Add(Me.comboBoxStates)
+        Me.Controls.Add(Me.txtBoxCityName)
         Me.Controls.Add(Me.lblDescription3)
         Me.Controls.Add(Me.lblDay3)
         Me.Controls.Add(Me.forcastImageBox3)
@@ -167,5 +194,8 @@ Partial Class Form1
     Friend WithEvents lblDescription3 As System.Windows.Forms.Label
     Friend WithEvents lblDay3 As System.Windows.Forms.Label
     Friend WithEvents forcastImageBox3 As System.Windows.Forms.PictureBox
+    Friend WithEvents apiBackgroundWorker As System.ComponentModel.BackgroundWorker
+    Friend WithEvents txtBoxCityName As System.Windows.Forms.TextBox
+    Friend WithEvents comboBoxStates As System.Windows.Forms.ComboBox
 
 End Class
