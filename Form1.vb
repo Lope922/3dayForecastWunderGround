@@ -2,7 +2,7 @@
 Imports System.IO
 Imports System.Xml
 
-Public Class Form1
+Public Class Main
 
     '' build a web request for 3 day forecast off of this. 
     ''  http://api.wunderground.com/api/ede6553743c4d570/forecast/q/MO/St_Louis.xml
@@ -48,7 +48,7 @@ Public Class Form1
 
 
 
-    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles btnGetWeather.Click
         ' the test url 
 
         ' Try
@@ -153,3 +153,5 @@ Public Class Form1
         txtBoxCityName.Clear()
     End Sub
 End Class
+
+'' todo refactor and add full functionality. Better display of information/features. 
